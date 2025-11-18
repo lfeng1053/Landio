@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Arena Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="hud">
+            <div id="playerInfo">
+                <div>Territory: <span id="territory">0</span></div>
+                <div>Cells Captured: <span id="cellsCaptured">0</span></div>
+                <div>Players: <span id="playerCount">1</span></div>
+            </div>
+
+            <div id="scoreboard">
+                <div class="scoreboard-title">Leaderboard</div>
+                <ol id="scoreList"></ol>
+            </div>
+        </div>
+        
+        <canvas id="gameCanvas" width="1600" height="900"></canvas>
+        
+        <div id="chat">
+            <div id="chatMessages"></div>
+            <div id="chatInputContainer">
+                <input type="text" id="chatInput" placeholder="Type a message...">
+                <button id="sendButton">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loginScreen">
+        <div class="login-box">
+            <h2>Multiplayer Arena</h2>
+            <button id="startButton">Join Game</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>

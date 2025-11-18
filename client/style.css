@@ -1,0 +1,177 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: #1a1a2e;
+    color: white;
+    overflow: hidden;
+}
+
+#gameContainer {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: none;
+}
+
+#gameCanvas {
+    display: block;
+    background: #162447;
+    margin: 0 auto;
+    border: 2px solid #0f3460;
+}
+
+#hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 10px 16px;
+    border-radius: 5px;
+    border: 1px solid #0f3460;
+    display: flex;
+    gap: 16px;
+}
+
+#playerInfo div {
+    margin: 5px 0;
+}
+
+#scoreboard {
+    min-width: 180px;
+}
+
+.scoreboard-title {
+    font-weight: bold;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 1px;
+    color: #4ECDC4;
+}
+
+#scoreList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#scoreList li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    margin-bottom: 4px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    background: rgba(15, 52, 96, 0.4);
+}
+
+#scoreList li.current {
+    border: 1px solid #FFEAA7;
+    background: rgba(255, 234, 167, 0.15);
+}
+
+#scoreList li .player-name {
+    font-weight: bold;
+}
+
+#scoreList li .player-score {
+    color: #FFEAA7;
+}
+
+#chat {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    width: 300px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 5px;
+    border: 1px solid #0f3460;
+}
+
+#chatMessages {
+    height: 150px;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+#chatInputContainer {
+    display: flex;
+    padding: 10px;
+    border-top: 1px solid #0f3460;
+}
+
+#chatInput {
+    flex: 1;
+    padding: 5px;
+    background: #1a1a2e;
+    border: 1px solid #0f3460;
+    color: white;
+    border-radius: 3px;
+}
+
+#sendButton {
+    margin-left: 5px;
+    padding: 5px 10px;
+    background: #0f3460;
+    border: none;
+    color: white;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+#loginScreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #1a1a2e 0%, #162447 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.login-box {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 40px;
+    border-radius: 10px;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#startButton {
+    padding: 15px 30px;
+    font-size: 18px;
+    background: #e94560;
+    border: none;
+    color: white;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 20px;
+    transition: background 0.3s;
+}
+
+#startButton:hover {
+    background: #ff6b6b;
+}
+
+.chat-message {
+    margin: 5px 0;
+    font-size: 12px;
+}
+
+.chat-message.system {
+    color: #4ECDC4;
+    font-style: italic;
+}
+
+.chat-message.player {
+    color: #FFEAA7;
+}
