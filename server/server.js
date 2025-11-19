@@ -19,7 +19,8 @@ server.on('connection', (ws) => {
         type: 'INIT',
         playerId: playerId,
         player: player,
-        arena: gameEngine.arena
+        arena: gameEngine.arena,
+        waterPlayerId: gameEngine.waterPlayerId
     }));
     
     // Broadcast player joined

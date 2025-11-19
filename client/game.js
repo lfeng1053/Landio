@@ -11,6 +11,16 @@ class GameClient {
             players: {},
             cells: []
         };
+        this.elementImages = {
+            water: [],
+            fung: null,
+            lavar: null,
+            desert: null
+        };
+        this.dirtImages = [];
+        this.dirtIndexCache = new Map(); // Cache for dirt tile indices
+        this.loadElementImages();
+        this.loadDirtImages();
         
         this.currentDirection = 'NONE';
         this.directionMap = {
@@ -24,7 +34,7 @@ class GameClient {
             d: 'RIGHT'
         };
         this.arena = { width: 1600, height: 900 };
-        this.cellSize = 40;
+        this.cellSize = 64;
         this.playerSize = 30;
         this.camera = {
             x: 0,
@@ -36,6 +46,69 @@ class GameClient {
         
         this.setupEventListeners();
         this.showLoginScreen();
+    }
+
+    loadElementImages() {
+        // Load water images (multiple files)
+        for (let i = 1; i <= 9; i++) {
+            const img = new Image();
+            img.src = `../elements/water/water${i}.png`;
+            img.onload = () => {
+                this.elementImages.water.push(img);
+            };
+            img.onerror = () => {
+                console.warn(`Failed to load water texture: water${i}.png`);
+            };
+        }
+
+        // Load other elements
+        const otherElements = [
+            { name: 'fung', folder: 'fung', file: 'fung.png' },
+            { name: 'lavar', folder: 'lavar', file: 'lavar.png' },
+            { name: 'desert', folder: 'Desert', file: 'desert.png' }
+        ];
+
+        otherElements.forEach(({ name, folder, file }) => {
+            const img = new Image();
+            img.src = `../elements/${folder}/${file}`;
+            img.onload = () => {
+                this.elementImages[name] = img;
+            };
+            img.onerror = () => {
+                console.warn(`Failed to load texture for element: ${name}`);
+            };
+        });
+    }
+
+    loadDirtImages() {
+        const dirtFiles = [
+            'dirt1.png',
+            'dirt2.png',
+            'dirt3.png',
+            'dirt4.png',
+            'dirt5.png',
+            'dirt6.png',
+            'dirt7.png',
+            'dirt8.png',
+            'dirt9.png',
+            'dirt10.png',
+            'dirt11.png',
+            'dirt12.png',
+            'dirt13.png',
+            'dirt14.png',
+            'dirt15.png'
+        ];
+        
+        dirtFiles.forEach((filename) => {
+            const img = new Image();
+            img.src = `../elements/Dirt/${filename}`;
+            img.onload = () => {
+                this.dirtImages.push(img);
+            };
+            img.onerror = () => {
+                console.warn(`Failed to load dirt texture: ${filename}`);
+            };
+        });
     }
 
     showLoginScreen() {
@@ -116,12 +189,11 @@ class GameClient {
                 return;
             }
 
-            // Spacebar stop temporarily disabled
-            // if (e.code === 'Space') {
-            //     this.setDirection('NONE');
-            //     e.preventDefault();
-            //     return;
-            // }
+            if (e.code === 'Space') {
+                this.setDirection('NONE');
+                e.preventDefault();
+                return;
+            }
 
             const direction = this.directionMap[e.key];
             if (direction && direction !== this.currentDirection) {
@@ -184,8 +256,11 @@ class GameClient {
         this.ctx.fillStyle = '#0B1324';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
+        // Draw background dirt tiles
+        this.drawBackgroundDirt();
+
+        // Draw claimed cells (on top of dirt)
         this.drawClaimedCells();
-        this.drawGrid();
 
         // Draw players
         Object.values(this.gameState.players).forEach(player => {
@@ -193,28 +268,119 @@ class GameClient {
         });
     }
 
-    drawGrid() {
-        this.ctx.strokeStyle = '#0f3460';
-        this.ctx.lineWidth = 1;
-        
-        const offsetX = this.camera.x % this.cellSize;
-        const offsetY = this.camera.y % this.cellSize;
+    getDirtColorGroup(index) {
+        // Groups: 1-5, 6-10, 11-15 (0-indexed: 0-4, 5-9, 10-14)
+        if (index < 5) return 0; // Group 1-5
+        if (index < 10) return 1; // Group 6-10
+        return 2; // Group 11-15
+    }
 
-        // Vertical lines
-        for (let x = -offsetX; x <= this.canvas.width; x += this.cellSize) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(x, 0);
-            this.ctx.lineTo(x, this.canvas.height);
-            this.ctx.stroke();
-        }
+    getDirtIndexForCell(row, col) {
+        const key = `${row}_${col}`;
         
-        // Horizontal lines
-        for (let y = -offsetY; y <= this.canvas.height; y += this.cellSize) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(0, y);
-            this.ctx.lineTo(this.canvas.width, y);
-            this.ctx.stroke();
+        // Check cache first
+        if (this.dirtIndexCache.has(key)) {
+            return this.dirtIndexCache.get(key);
         }
+
+        // Get base index from hash
+        const hash = this.simpleHash(row, col, 'dirt');
+        let dirtIndex = Math.abs(hash) % this.dirtImages.length;
+        const baseGroup = this.getDirtColorGroup(dirtIndex);
+
+        // Check neighboring cells to avoid too many same-color tiles
+        const neighbors = [
+            { r: row - 1, c: col }, // top
+            { r: row + 1, c: col }, // bottom
+            { r: row, c: col - 1 }, // left
+            { r: row, c: col + 1 }  // right
+        ];
+
+        const neighborGroups = new Map();
+        neighbors.forEach(n => {
+            const nKey = `${n.r}_${n.c}`;
+            if (this.dirtIndexCache.has(nKey)) {
+                const nIndex = this.dirtIndexCache.get(nKey);
+                const nGroup = this.getDirtColorGroup(nIndex);
+                neighborGroups.set(nGroup, (neighborGroups.get(nGroup) || 0) + 1);
+            }
+        });
+
+        // If too many neighbors have the same color group, try different groups
+        const sameGroupCount = neighborGroups.get(baseGroup) || 0;
+        if (sameGroupCount >= 2) {
+            // Try to find a different group
+            const availableGroups = [0, 1, 2].filter(g => g !== baseGroup);
+            let bestGroup = baseGroup;
+            let minCount = sameGroupCount;
+
+            for (const group of availableGroups) {
+                const count = neighborGroups.get(group) || 0;
+                if (count < minCount) {
+                    minCount = count;
+                    bestGroup = group;
+                }
+            }
+
+            // Select random index from the best group
+            if (bestGroup !== baseGroup) {
+                const groupStart = bestGroup * 5;
+                const groupEnd = groupStart + 5;
+                const groupHash = this.simpleHash(row, col, `dirt_group_${bestGroup}`);
+                dirtIndex = groupStart + (Math.abs(groupHash) % 5);
+            }
+        }
+
+        // Cache the result
+        this.dirtIndexCache.set(key, dirtIndex);
+        return dirtIndex;
+    }
+
+    drawBackgroundDirt() {
+        if (this.dirtImages.length === 0) return;
+
+        const startCol = Math.max(0, Math.floor(this.camera.x / this.cellSize));
+        const endCol = Math.ceil((this.camera.x + this.camera.width) / this.cellSize);
+        const startRow = Math.max(0, Math.floor(this.camera.y / this.cellSize));
+        const endRow = Math.ceil((this.camera.y + this.camera.height) / this.cellSize);
+
+        for (let row = startRow; row < endRow; row++) {
+            for (let col = startCol; col < endCol; col++) {
+                // Check if this cell is claimed
+                const isClaimed = this.isCellClaimed(row, col);
+                if (isClaimed) continue;
+
+                // Get dirt index with color group avoidance
+                const dirtIndex = this.getDirtIndexForCell(row, col);
+                const dirtImg = this.dirtImages[dirtIndex];
+
+                if (dirtImg) {
+                    const x = col * this.cellSize - this.camera.x;
+                    const y = row * this.cellSize - this.camera.y;
+                    this.ctx.drawImage(dirtImg, x, y, this.cellSize, this.cellSize);
+                }
+            }
+        }
+    }
+
+    isCellClaimed(row, col) {
+        if (!Array.isArray(this.gameState.cells) || this.gameState.cells.length === 0) return false;
+        const rowData = this.gameState.cells[row];
+        if (!rowData) return false;
+        const cell = rowData[col];
+        return cell !== null && cell !== undefined;
+    }
+
+    simpleHash(row, col, ownerId) {
+        // Simple hash function for consistent random selection
+        let hash = 0;
+        const str = `${row}_${col}_${ownerId}`;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return hash;
     }
 
     drawClaimedCells() {
@@ -241,21 +407,41 @@ class GameClient {
 
                 const x = col * this.cellSize - this.camera.x;
                 const y = row * this.cellSize - this.camera.y;
-                this.ctx.fillStyle = cell.color;
-                if (cell.isTrail) {
-                    this.ctx.globalAlpha = 0.5;
-                } else {
-                    this.ctx.globalAlpha = 1;
-                }
-                this.ctx.fillRect(x, y, this.cellSize, this.cellSize);
-                this.ctx.globalAlpha = 1;
-
-                if (cell.isTrail) {
-                    this.ctx.strokeStyle = '#ffffff55';
-                    this.ctx.lineWidth = 1;
-                    this.ctx.strokeRect(x + 2, y + 2, this.cellSize - 4, this.cellSize - 4);
-                }
+                this.drawCellWithStyle(cell, x, y, row, col);
             }
+        }
+    }
+
+    drawCellWithStyle(cell, x, y, row, col) {
+        const player = this.gameState.players[cell.ownerId];
+        let img = null;
+
+        if (player && player.element) {
+            const elementData = this.elementImages[player.element];
+            if (player.element === 'water' && Array.isArray(elementData) && elementData.length > 0) {
+                // Random water image (using hash of cell position + ownerId for consistency)
+                const hash = this.simpleHash(row, col, cell.ownerId);
+                const waterIndex = Math.abs(hash) % elementData.length;
+                img = elementData[waterIndex];
+            } else if (elementData) {
+                img = elementData;
+            }
+        }
+
+        if (img && !cell.isTrail) {
+            this.ctx.globalAlpha = 1;
+            this.ctx.drawImage(img, x, y, this.cellSize, this.cellSize);
+        } else {
+            this.ctx.fillStyle = cell.color;
+            this.ctx.globalAlpha = cell.isTrail ? 0.5 : 1;
+            this.ctx.fillRect(x, y, this.cellSize, this.cellSize);
+            this.ctx.globalAlpha = 1;
+        }
+
+        if (cell.isTrail) {
+            this.ctx.strokeStyle = '#ffffff55';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x + 2, y + 2, this.cellSize - 4, this.cellSize - 4);
         }
     }
 

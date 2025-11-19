@@ -2,11 +2,18 @@ class GameEngine {
     constructor() {
         this.players = new Map();
         this.arena = { width: 3200, height: 2000 };
-        this.cellSize = 40;
+        this.cellSize = 64;
         this.playerSize = 30;
         this.cols = Math.floor(this.arena.width / this.cellSize);
         this.rows = Math.floor(this.arena.height / this.cellSize);
         this.respawnDelay = 2000;
+        this.elements = ['water', 'fung', 'lavar', 'desert'];
+        this.elementColors = {
+            water: '#3B82F6',
+            fung: '#10B981',
+            lavar: '#FF6B35',
+            desert: '#F59E0B'
+        };
         this.gameState = {
             players: {},
             cells: this.createEmptyGrid(),
@@ -23,9 +30,13 @@ class GameEngine {
 
     addPlayer(playerId, ws) {
         const spawn = this.getRandomSpawn(1);
+        const elementIndex = this.players.size % this.elements.length;
+        const element = this.elements[elementIndex];
+        
         const player = {
             id: playerId,
-            color: this.getRandomColor(),
+            element: element,
+            color: this.elementColors[element],
             area: 0,
             col: spawn.col,
             row: spawn.row,
@@ -50,6 +61,7 @@ class GameEngine {
 
         this.players.set(playerId, player);
         this.createSafeZone(player, 1);
+        this.updatePlayerSnapshot(playerId);
 
         return this.getPlayerSnapshot(playerId);
     }
@@ -511,7 +523,8 @@ class GameEngine {
             x: player.x,
             y: player.y,
             color: player.color,
-            area: player.area
+            area: player.area,
+            element: player.element
         };
     }
 
