@@ -14,10 +14,22 @@ class GameEngine {
             lavar: '#FF6B35',
             desert: '#F59E0B'
         };
+        this.oppositeDirections = {
+            UP: 'DOWN',
+            DOWN: 'UP',
+            LEFT: 'RIGHT',
+            RIGHT: 'LEFT'
+        };
+        this.matchDuration = 3 * 60 * 1000;
+        this.matchStartTime = null;
         this.gameState = {
             players: {},
             cells: this.createEmptyGrid(),
-            gameTime: 0
+            gameTime: 0,
+            timeRemaining: this.matchDuration,
+            gameOver: false,
+            winnerId: null,
+            winnerName: null
         };
         this.lastUpdateTime = Date.now();
     }
@@ -28,13 +40,15 @@ class GameEngine {
         );
     }
 
-    addPlayer(playerId, ws) {
+    addPlayer(playerId, ws, config = {}) {
         const spawn = this.getRandomSpawn(1);
-        const elementIndex = this.players.size % this.elements.length;
-        const element = this.elements[elementIndex];
+        const preferredElement = config.element;
+        const element = this.selectElementForNewPlayer(preferredElement, playerId);
         
+        const playerName = config.name ? this.sanitizeName(config.name, playerId) : this.generateDefaultName(playerId);
         const player = {
             id: playerId,
+            name: playerName,
             element: element,
             color: this.elementColors[element],
             area: 0,
@@ -59,9 +73,13 @@ class GameEngine {
             ws
         };
 
+        const wasEmpty = this.players.size === 0;
         this.players.set(playerId, player);
         this.createSafeZone(player, 1);
         this.updatePlayerSnapshot(playerId);
+        if (wasEmpty) {
+            this.startMatchTimer();
+        }
 
         return this.getPlayerSnapshot(playerId);
     }
@@ -74,13 +92,22 @@ class GameEngine {
         }
         this.players.delete(playerId);
         delete this.gameState.players[playerId];
+        if (this.players.size === 0) {
+            this.resetMatchTimerState();
+        }
     }
 
     setPlayerDirection(playerId, direction) {
+        if (this.gameState.gameOver) return;
         const player = this.players.get(playerId);
         if (!player) return;
+        const normalizedDirection = direction || 'NONE';
 
-        player.direction = direction || 'NONE';
+        if (this.isOppositeDirection(normalizedDirection, player.direction)) {
+            return;
+        }
+
+        player.direction = normalizedDirection;
         this.tryStartMove(player);
     }
 
@@ -164,6 +191,10 @@ class GameEngine {
         this.lastUpdateTime = now;
 
         this.gameState.gameTime += deltaTime;
+        this.updateMatchTimer();
+        if (this.gameState.gameOver) {
+            return;
+        }
         this.movePlayers(deltaTime);
     }
 
@@ -520,6 +551,7 @@ class GameEngine {
 
         return {
             id: player.id,
+            name: player.name,
             x: player.x,
             y: player.y,
             color: player.color,
@@ -537,6 +569,159 @@ class GameEngine {
 
     getGameState() {
         return this.gameState;
+    }
+
+    setPlayerName(playerId, rawName) {
+        const player = this.players.get(playerId);
+        if (!player) return;
+        const sanitized = this.sanitizeName(rawName, playerId);
+        player.name = sanitized;
+        this.updatePlayerSnapshot(playerId);
+        return sanitized;
+    }
+
+    setPlayerElement(playerId, element) {
+        if (!this.elements.includes(element)) {
+            return { success: false, reason: 'INVALID_ELEMENT' };
+        }
+        const player = this.players.get(playerId);
+        if (!player) {
+            return { success: false, reason: 'PLAYER_NOT_FOUND' };
+        }
+        if (player.element === element) {
+            return {
+                success: true,
+                element: player.element,
+                color: player.color
+            };
+        }
+
+        if (!this.isElementAvailable(element, playerId)) {
+            return { success: false, reason: 'ELEMENT_TAKEN' };
+        }
+
+        player.element = element;
+        player.color = this.elementColors[element] || player.color;
+        this.applyPlayerColorToCells(playerId, player.color);
+        this.updatePlayerSnapshot(playerId);
+        return {
+            success: true,
+            element: player.element,
+            color: player.color
+        };
+    }
+
+    applyPlayerColorToCells(playerId, color) {
+        for (let row = 0; row < this.rows; row++) {
+            for (let col = 0; col < this.cols; col++) {
+                const cell = this.gameState.cells[row][col];
+                if (cell && cell.ownerId === playerId) {
+                    cell.color = color;
+                }
+            }
+        }
+    }
+
+    selectElementForNewPlayer(preferredElement, playerId) {
+        if (preferredElement && this.isElementAvailable(preferredElement, playerId)) {
+            return preferredElement;
+        }
+        const available = this.elements.find(el => this.isElementAvailable(el, playerId));
+        return available || this.elements[0];
+    }
+
+    isElementAvailable(element, excludePlayerId = null) {
+        if (!this.elements.includes(element)) return false;
+        for (const player of this.players.values()) {
+            if (player.element === element && player.id !== excludePlayerId) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    getElementAvailability() {
+        const availability = {};
+        this.elements.forEach(element => {
+            availability[element] = this.isElementAvailable(element);
+        });
+        return availability;
+    }
+
+    isOppositeDirection(dirA, dirB) {
+        if (!dirA || !dirB) return false;
+        if (dirA === 'NONE' || dirB === 'NONE') return false;
+        return this.oppositeDirections[dirA] === dirB || this.oppositeDirections[dirB] === dirA;
+    }
+
+    sanitizeName(name, playerId) {
+        const fallback = this.generateDefaultName(playerId);
+        if (!name) return fallback;
+        const trimmed = name.trim().substring(0, 9);
+        const cleaned = trimmed.replace(/[<>]/g, '').replace(/[^\p{L}\p{N}\s_\-]/gu, '');
+        return cleaned || fallback;
+    }
+
+    generateDefaultName(playerId) {
+        return `Player${playerId.slice(0, 4)}`;
+    }
+
+    updateMatchTimer() {
+        if (this.gameState.gameOver) {
+            this.gameState.timeRemaining = 0;
+            return;
+        }
+        if (!this.matchStartTime) {
+            this.gameState.timeRemaining = this.matchDuration;
+            return;
+        }
+        const elapsed = Date.now() - this.matchStartTime;
+        const remaining = Math.max(0, this.matchDuration - elapsed);
+        this.gameState.timeRemaining = remaining;
+        if (remaining === 0) {
+            this.endMatch();
+        }
+    }
+
+    endMatch() {
+        if (this.gameState.gameOver) return;
+        this.gameState.gameOver = true;
+        const winner = this.determineWinner();
+        this.gameState.winnerId = winner ? winner.id : null;
+        this.gameState.winnerName = winner ? winner.name : null;
+
+        this.players.forEach(player => {
+            player.direction = 'NONE';
+            player.isMoving = false;
+            player.moveProgress = 0;
+            this.updatePlayerSnapshot(player.id);
+        });
+    }
+
+    determineWinner() {
+        let winner = null;
+        this.players.forEach(player => {
+            if (!winner || (player.area || 0) > (winner.area || 0)) {
+                winner = player;
+            }
+        });
+        return winner;
+    }
+
+    startMatchTimer() {
+        this.matchStartTime = Date.now();
+        this.gameState.timeRemaining = this.matchDuration;
+        this.gameState.gameOver = false;
+        this.gameState.winnerId = null;
+        this.gameState.winnerName = null;
+    }
+
+    resetMatchTimerState() {
+        this.matchStartTime = null;
+        this.gameState.timeRemaining = this.matchDuration;
+        this.gameState.gameOver = false;
+        this.gameState.winnerId = null;
+        this.gameState.winnerName = null;
     }
 }
 
