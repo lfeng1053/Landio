@@ -313,7 +313,9 @@ body {
 
 #continueButton,
 #backToNameButton,
-#startButton {
+#startButton,
+#spectateButton,
+#spectateFromNameButton {
     margin-top: 0;
 }
 
@@ -325,6 +327,16 @@ body {
 
 #backToNameButton {
     background: #0f3460;
+}
+
+#spectateButton,
+#spectateFromNameButton {
+    background: #4ECDC4;
+}
+
+#spectateButton:hover,
+#spectateFromNameButton:hover {
+    background: #3ba8a0;
 }
 
 .step-actions button:disabled {

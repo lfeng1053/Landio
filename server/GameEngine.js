@@ -1,6 +1,7 @@
 class GameEngine {
     constructor() {
         this.players = new Map();
+        this.spectators = new Map(); // spectatorId -> { id, name }
         this.arena = { width: 3200, height: 2000 };
         this.cellSize = 64;
         this.playerSize = 30;
@@ -95,6 +96,21 @@ class GameEngine {
         if (this.players.size === 0) {
             this.resetMatchTimerState();
         }
+    }
+
+    addSpectator(spectatorId, name) {
+        this.spectators.set(spectatorId, {
+            id: spectatorId,
+            name: name
+        });
+    }
+
+    removeSpectator(spectatorId) {
+        this.spectators.delete(spectatorId);
+    }
+
+    getPlayerCount() {
+        return this.players.size;
     }
 
     setPlayerDirection(playerId, direction) {

@@ -4,13 +4,14 @@ const GameEngine = require('./GameEngine');
 
 const server = new WebSocket.Server({ port: 8080 });
 const gameEngine = new GameEngine();
-const connectionStates = new Map(); // playerId -> { ws, initialized }
+const connectionStates = new Map(); // playerId -> { ws, initialized, isSpectator }
+const MAX_PLAYERS = 4;
 
 console.log('Multiplayer Game Server running on port 8080');
 
 server.on('connection', (ws) => {
     const playerId = uuidv4();
-    connectionStates.set(playerId, { ws, initialized: false });
+    connectionStates.set(playerId, { ws, initialized: false, isSpectator: false });
     ws.playerId = playerId;
 
     sendPlayerConfig(ws, playerId);
@@ -41,6 +42,10 @@ function handleClientMessage(playerId, ws, message) {
         case 'INIT_PLAYER':
             if (state.initialized) return;
             handlePlayerInitialization(playerId, ws, message);
+            break;
+        case 'SPECTATE':
+            if (state.initialized) return;
+            handleSpectatorInitialization(playerId, ws, message);
             break;
         case 'MOVEMENT':
             if (!state.initialized) return;
@@ -119,6 +124,16 @@ process.on('SIGINT', () => {
 });
 
 function handlePlayerInitialization(playerId, ws, message) {
+    // Check if room is full (max 4 players)
+    const activePlayers = gameEngine.getPlayerCount();
+    if (activePlayers >= MAX_PLAYERS) {
+        ws.send(JSON.stringify({
+            type: 'ROOM_FULL',
+            message: 'Room is full (max 4 players)'
+        }));
+        return;
+    }
+
     const desiredElement = message.element;
     const desiredName = gameEngine.sanitizeName(message.name, playerId);
 
@@ -140,6 +155,7 @@ function handlePlayerInitialization(playerId, ws, message) {
     const state = connectionStates.get(playerId);
     if (state) {
         state.initialized = true;
+        state.isSpectator = false;
         if (state.ws) {
             state.ws.isInitialized = true;
         }
@@ -162,6 +178,35 @@ function handlePlayerInitialization(playerId, ws, message) {
     broadcastElementAvailability();
 }
 
+function handleSpectatorInitialization(playerId, ws, message) {
+    const desiredName = gameEngine.sanitizeName(message.name, playerId);
+    
+    gameEngine.addSpectator(playerId, desiredName);
+
+    const state = connectionStates.get(playerId);
+    if (state) {
+        state.initialized = true;
+        state.isSpectator = true;
+        if (state.ws) {
+            state.ws.isInitialized = true;
+        }
+    }
+
+    console.log(`Spectator ${playerId} joined as ${desiredName}`);
+
+    ws.send(JSON.stringify({
+        type: 'SPECTATE_INIT',
+        playerId: playerId,
+        arena: gameEngine.arena
+    }));
+
+    broadcast({
+        type: 'SPECTATOR_JOINED',
+        playerId: playerId,
+        name: desiredName
+    }, playerId);
+}
+
 function handleDisconnect(playerId) {
     const state = connectionStates.get(playerId);
     if (!state) return;
@@ -169,13 +214,22 @@ function handleDisconnect(playerId) {
     connectionStates.delete(playerId);
 
     if (state.initialized) {
-        console.log(`Player ${playerId} disconnected`);
-        gameEngine.removePlayer(playerId);
-        broadcast({
-            type: 'PLAYER_LEFT',
-            playerId: playerId
-        });
-        broadcastElementAvailability();
+        if (state.isSpectator) {
+            console.log(`Spectator ${playerId} disconnected`);
+            gameEngine.removeSpectator(playerId);
+            broadcast({
+                type: 'SPECTATOR_LEFT',
+                playerId: playerId
+            });
+        } else {
+            console.log(`Player ${playerId} disconnected`);
+            gameEngine.removePlayer(playerId);
+            broadcast({
+                type: 'PLAYER_LEFT',
+                playerId: playerId
+            });
+            broadcastElementAvailability();
+        }
     }
 }
 

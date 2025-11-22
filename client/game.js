@@ -37,6 +37,7 @@ class GameClient {
         this.pendingInitPayload = null;
         this.isAttemptingJoin = false;
         this.pendingPlayerId = null;
+        this.isSpectator = false;
         
         this.currentDirection = 'NONE';
         this.directionMap = {
@@ -155,7 +156,9 @@ class GameClient {
             nameInput: document.getElementById('playerNameInput'),
             continueButton: document.getElementById('continueButton'),
             backButton: document.getElementById('backToNameButton'),
-            startButton: document.getElementById('startButton')
+            startButton: document.getElementById('startButton'),
+            spectateButton: document.getElementById('spectateButton'),
+            spectateFromNameButton: document.getElementById('spectateFromNameButton')
         };
         this.nameErrorElement = document.getElementById('nameError');
         this.elementErrorElement = document.getElementById('elementError');
@@ -163,6 +166,10 @@ class GameClient {
         this.loginStepElements.continueButton.addEventListener('click', () => this.handleNameSubmission());
         this.loginStepElements.backButton.addEventListener('click', () => this.switchLoginStep('name'));
         this.loginStepElements.startButton.addEventListener('click', () => this.handleJoinGame());
+        this.loginStepElements.spectateButton.addEventListener('click', () => this.handleSpectate());
+        if (this.loginStepElements.spectateFromNameButton) {
+            this.loginStepElements.spectateFromNameButton.addEventListener('click', () => this.handleSpectateFromName());
+        }
         this.loginStepElements.nameInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -203,6 +210,7 @@ class GameClient {
         }
 
         this.showElementError('');
+        this.isSpectator = false;
         this.setJoinLoading(true);
         this.pendingInitPayload = {
             name: this.playerName,
@@ -212,12 +220,66 @@ class GameClient {
         this.trySendInitPayload();
     }
 
+    handleSpectateFromName() {
+        const input = this.loginStepElements.nameInput;
+        const sanitized = this.sanitizePlayerName(input.value);
+        if (!sanitized) {
+            this.showNameError('Please enter a valid name');
+            return;
+        }
+        this.playerName = sanitized;
+        input.value = sanitized;
+        this.showNameError('');
+        
+        this.isSpectator = true;
+        this.setJoinLoading(true);
+        this.pendingInitPayload = {
+            name: this.playerName,
+            isSpectator: true
+        };
+        this.ensureConnection();
+        this.trySendSpectatePayload();
+    }
+
+    handleSpectate() {
+        if (!this.playerName) {
+            this.showNameError('Please enter your name first.');
+            this.switchLoginStep('name');
+            return;
+        }
+
+        this.showElementError('');
+        this.isSpectator = true;
+        this.setJoinLoading(true);
+        this.pendingInitPayload = {
+            name: this.playerName,
+            isSpectator: true
+        };
+        this.ensureConnection();
+        this.trySendSpectatePayload();
+    }
+
     setJoinLoading(isLoading) {
         this.isAttemptingJoin = isLoading;
         this.updateJoinButtonState();
         const startButton = this.loginStepElements.startButton;
+        const spectateButton = this.loginStepElements.spectateButton;
+        const spectateFromNameButton = this.loginStepElements.spectateFromNameButton;
+        const continueButton = this.loginStepElements.continueButton;
+        
         if (startButton) {
             startButton.textContent = isLoading ? 'Joining...' : 'Join Match';
+        }
+        if (spectateButton) {
+            spectateButton.disabled = isLoading;
+            spectateButton.textContent = isLoading ? 'Joining...' : 'Spectate';
+        }
+        if (spectateFromNameButton) {
+            spectateFromNameButton.disabled = isLoading;
+            spectateFromNameButton.textContent = isLoading ? 'Joining...' : 'Spectate';
+        }
+        if (continueButton) {
+            continueButton.disabled = isLoading;
         }
     }
 
@@ -374,7 +436,11 @@ class GameClient {
         
         this.ws.onopen = () => {
             console.log('Connected to game server');
-            this.trySendInitPayload();
+            if (this.isSpectator) {
+                this.trySendSpectatePayload();
+            } else {
+                this.trySendInitPayload();
+            }
         };
 
         this.ws.onmessage = (event) => {
@@ -413,6 +479,15 @@ class GameClient {
         }));
     }
 
+    trySendSpectatePayload() {
+        if (!this.pendingInitPayload) return;
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({
+            type: 'SPECTATE',
+            name: this.pendingInitPayload.name
+        }));
+    }
+
     handleServerMessage(message) {
         switch (message.type) {
             case 'PLAYER_CONFIG':
@@ -420,6 +495,10 @@ class GameClient {
                 return;
             case 'ELEMENT_SELECTION_ERROR':
                 this.handleElementSelectionError(message.reason, message.availableElements);
+                return;
+            case 'ROOM_FULL':
+                this.setJoinLoading(false);
+                this.showElementError('Room is full (max 4 players). Please choose spectator mode.');
                 return;
         }
 
@@ -439,6 +518,17 @@ class GameClient {
                 this.updateHUD();
                 break;
                 
+            case 'SPECTATE_INIT':
+                this.playerId = message.playerId;
+                this.arena = message.arena;
+                this.isSpectator = true;
+                this.pendingInitPayload = null;
+                this.setJoinLoading(false);
+                this.showGameScreen();
+                this.updateHUD();
+                this.addChatMessage('system', 'You are in spectator mode');
+                break;
+                
             case 'GAME_STATE_UPDATE':
                 this.gameState = message.gameState;
                 this.syncTimer(message.gameState?.timeRemaining, message.timestamp);
@@ -455,6 +545,14 @@ class GameClient {
                 const departingName = departingPlayer ? (departingPlayer.name || departingPlayer.id.substr(0, 8)) : message.playerId.substr(0, 8);
                 delete this.gameState.players[message.playerId];
                 this.addChatMessage('system', `${departingName} left`);
+                break;
+                
+            case 'SPECTATOR_JOINED':
+                this.addChatMessage('system', `${message.name || message.playerId.substr(0, 8)} joined as spectator`);
+                break;
+                
+            case 'SPECTATOR_LEFT':
+                this.addChatMessage('system', `Spectator left`);
                 break;
                 
             case 'CHAT_MESSAGE':
@@ -766,6 +864,7 @@ class GameClient {
     }
 
     setDirection(direction) {
+        if (this.isSpectator) return; // Spectators cannot move
         if (!this.ws || direction === this.currentDirection || this.gameState.gameOver) return;
         if (this.isOppositeDirection(direction, this.currentDirection)) return;
         this.currentDirection = direction;
@@ -778,11 +877,18 @@ class GameClient {
     updateHUD() {
         if (!this.playerId) return;
         
-        const player = this.gameState.players[this.playerId];
-        if (player) {
-            document.getElementById('territory').textContent = player.area || 0;
-            document.getElementById('cellsCaptured').textContent = player.area || 0;
+        if (this.isSpectator) {
+            // Spectator HUD: show player count and scoreboard
+            document.getElementById('territory').textContent = '-';
+            document.getElementById('cellsCaptured').textContent = '-';
             document.getElementById('playerCount').textContent = Object.keys(this.gameState.players).length;
+        } else {
+            const player = this.gameState.players[this.playerId];
+            if (player) {
+                document.getElementById('territory').textContent = player.area || 0;
+                document.getElementById('cellsCaptured').textContent = player.area || 0;
+                document.getElementById('playerCount').textContent = Object.keys(this.gameState.players).length;
+            }
         }
 
         this.updateScoreboard();
@@ -821,6 +927,29 @@ class GameClient {
 
     updateCamera() {
         if (!this.playerId) return;
+        
+        if (this.isSpectator) {
+            // Spectator camera: center on arena or follow first player
+            const players = Object.values(this.gameState.players);
+            if (players.length > 0) {
+                // Follow the first player (or could be changed to follow leader)
+                const targetPlayer = players[0];
+                const centerX = targetPlayer.x + this.playerSize / 2;
+                const centerY = targetPlayer.y + this.playerSize / 2;
+
+                const maxX = Math.max(0, this.arena.width - this.camera.width);
+                const maxY = Math.max(0, this.arena.height - this.camera.height);
+
+                this.camera.x = Math.min(maxX, Math.max(0, centerX - this.camera.width / 2));
+                this.camera.y = Math.min(maxY, Math.max(0, centerY - this.camera.height / 2));
+            } else {
+                // Center on arena if no players
+                this.camera.x = (this.arena.width - this.camera.width) / 2;
+                this.camera.y = (this.arena.height - this.camera.height) / 2;
+            }
+            return;
+        }
+        
         const player = this.gameState.players[this.playerId];
         if (!player) return;
 
