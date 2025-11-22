@@ -21,6 +21,22 @@ class GameClient {
         this.dirtIndexCache = new Map(); // Cache for dirt tile indices
         this.loadElementImages();
         this.loadDirtImages();
+        this.playerName = '';
+        this.availableElements = ['water', 'fung', 'lavar', 'desert'];
+        this.selectedElement = this.availableElements[0];
+        this.timerElement = document.getElementById('timer');
+        this.statusMessageElement = document.getElementById('statusMessage');
+        this.timerSync = null;
+        this.elementSelectionInitialized = false;
+        this.loginUIInitialized = false;
+        this.elementAvailability = {};
+        this.currentLoginStep = 'name';
+        this.loginStepElements = {};
+        this.nameErrorElement = null;
+        this.elementErrorElement = null;
+        this.pendingInitPayload = null;
+        this.isAttemptingJoin = false;
+        this.pendingPlayerId = null;
         
         this.currentDirection = 'NONE';
         this.directionMap = {
@@ -32,6 +48,12 @@ class GameClient {
             s: 'DOWN',
             a: 'LEFT',
             d: 'RIGHT'
+        };
+        this.oppositeDirections = {
+            UP: 'DOWN',
+            DOWN: 'UP',
+            LEFT: 'RIGHT',
+            RIGHT: 'LEFT'
         };
         this.arena = { width: 1600, height: 900 };
         this.cellSize = 64;
@@ -115,9 +137,9 @@ class GameClient {
         document.getElementById('loginScreen').style.display = 'flex';
         document.getElementById('gameContainer').style.display = 'none';
         
-        document.getElementById('startButton').onclick = () => {
-            this.connectToServer();
-        };
+        this.setupLoginUI();
+        this.switchLoginStep('name');
+        this.setupElementSelection();
     }
 
     showGameScreen() {
@@ -125,12 +147,234 @@ class GameClient {
         document.getElementById('gameContainer').style.display = 'block';
     }
 
-    connectToServer() {
+    setupLoginUI() {
+        if (this.loginUIInitialized) return;
+        this.loginStepElements = {
+            nameStep: document.getElementById('nameStep'),
+            elementStep: document.getElementById('elementStep'),
+            nameInput: document.getElementById('playerNameInput'),
+            continueButton: document.getElementById('continueButton'),
+            backButton: document.getElementById('backToNameButton'),
+            startButton: document.getElementById('startButton')
+        };
+        this.nameErrorElement = document.getElementById('nameError');
+        this.elementErrorElement = document.getElementById('elementError');
+
+        this.loginStepElements.continueButton.addEventListener('click', () => this.handleNameSubmission());
+        this.loginStepElements.backButton.addEventListener('click', () => this.switchLoginStep('name'));
+        this.loginStepElements.startButton.addEventListener('click', () => this.handleJoinGame());
+        this.loginStepElements.nameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.handleNameSubmission();
+            }
+        });
+        this.loginUIInitialized = true;
+    }
+
+    handleNameSubmission() {
+        const input = this.loginStepElements.nameInput;
+        const sanitized = this.sanitizePlayerName(input.value);
+        if (!sanitized) {
+            this.showNameError('Please enter a valid name');
+            return;
+        }
+        this.playerName = sanitized;
+        input.value = sanitized;
+        this.showNameError('');
+        this.switchLoginStep('element');
+        this.ensureConnection();
+    }
+
+    handleJoinGame() {
+        if (!this.playerName) {
+            this.showNameError('Please enter your name first.');
+            this.switchLoginStep('name');
+            return;
+        }
+        if (!this.selectedElement) {
+            this.showElementError('Please choose an element');
+            return;
+        }
+
+        if (this.elementAvailability[this.selectedElement] === false) {
+            this.showElementError('This element is already taken');
+            return;
+        }
+
+        this.showElementError('');
+        this.setJoinLoading(true);
+        this.pendingInitPayload = {
+            name: this.playerName,
+            element: this.selectedElement
+        };
+        this.ensureConnection();
+        this.trySendInitPayload();
+    }
+
+    setJoinLoading(isLoading) {
+        this.isAttemptingJoin = isLoading;
+        this.updateJoinButtonState();
+        const startButton = this.loginStepElements.startButton;
+        if (startButton) {
+            startButton.textContent = isLoading ? 'Joining...' : 'Join Match';
+        }
+    }
+
+    updateJoinButtonState() {
+        const startButton = this.loginStepElements.startButton;
+        if (!startButton) return;
+        const isDisabled = this.isAttemptingJoin ||
+            !this.selectedElement ||
+            this.elementAvailability[this.selectedElement] === false;
+        startButton.disabled = isDisabled;
+    }
+
+    showNameError(message) {
+        if (this.nameErrorElement) {
+            this.nameErrorElement.textContent = message || '';
+        }
+    }
+
+    showElementError(message) {
+        if (this.elementErrorElement) {
+            this.elementErrorElement.textContent = message || '';
+        }
+    }
+
+    switchLoginStep(step) {
+        this.currentLoginStep = step;
+        if (!this.loginStepElements.nameStep || !this.loginStepElements.elementStep) return;
+        this.loginStepElements.nameStep.classList.toggle('active', step === 'name');
+        this.loginStepElements.elementStep.classList.toggle('active', step === 'element');
+        if (step === 'name') {
+            this.setJoinLoading(false);
+            this.showElementError('');
+        } else {
+            this.updateJoinButtonState();
+            this.showElementError('');
+        }
+    }
+
+    handleElementAvailability(availableElements = {}, playerIdHint = null) {
+        if (this.playerId) return;
+        if (playerIdHint) {
+            this.pendingPlayerId = playerIdHint;
+        }
+        this.updateElementOptionsAvailability(availableElements);
+        this.updateJoinButtonState();
+    }
+
+    handleElementSelectionError(reason, availability) {
+        this.pendingInitPayload = null;
+        this.setJoinLoading(false);
+        this.showElementError(this.translateElementError(reason));
+        if (availability) {
+            this.updateElementOptionsAvailability(availability);
+        }
+    }
+
+    translateElementError(reason) {
+        switch (reason) {
+            case 'ELEMENT_TAKEN':
+                return 'This element is already being used.';
+            case 'INVALID_ELEMENT':
+                return 'Invalid element.';
+            case 'ELEMENT_REQUIRED':
+                return 'Please select an element.';
+            default:
+                return 'Unable to select element. Please try again.';
+        }
+    }
+
+    setupElementSelection() {
+        if (this.elementSelectionInitialized) {
+            this.updateElementOptionsAvailability();
+            this.selectElement(this.selectedElement);
+            return;
+        }
+
+        const optionButtons = document.querySelectorAll('.element-option');
+        if (!optionButtons.length) return;
+        optionButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const element = button.dataset.element;
+                if (element) {
+                    this.selectElement(element);
+                }
+            });
+        });
+
+        const initialElement = this.selectedElement || optionButtons[0].dataset.element;
+        if (initialElement) {
+            this.selectElement(initialElement);
+        }
+        this.elementSelectionInitialized = true;
+        this.updateElementOptionsAvailability();
+    }
+
+    selectElement(element) {
+        if (!this.availableElements.includes(element)) return;
+        if (this.elementAvailability[element] === false) return;
+        this.selectedElement = element;
+        const optionButtons = document.querySelectorAll('.element-option');
+        optionButtons.forEach((button) => {
+            const isSelected = button.dataset.element === element;
+            button.classList.toggle('selected', isSelected);
+        });
+        this.updateJoinButtonState();
+    }
+
+    updateElementOptionsAvailability(availabilityUpdate = null) {
+        if (availabilityUpdate) {
+            this.elementAvailability = {
+                ...this.elementAvailability,
+                ...availabilityUpdate
+            };
+        }
+
+        const optionButtons = document.querySelectorAll('.element-option');
+        if (!optionButtons.length) return;
+        optionButtons.forEach((button) => {
+            const element = button.dataset.element;
+            const isAvailable = this.elementAvailability[element] !== false;
+            button.disabled = !isAvailable;
+            button.classList.toggle('disabled', !isAvailable);
+        });
+
+        if (this.selectedElement && this.elementAvailability[this.selectedElement] === false) {
+            this.selectedElement = null;
+        }
+
+        if (!this.selectedElement) {
+            const firstAvailable = this.availableElements.find(el => this.elementAvailability[el] !== false);
+            if (firstAvailable) {
+                this.selectElement(firstAvailable);
+            }
+        } else {
+            this.updateJoinButtonState();
+        }
+    }
+
+    ensureConnection() {
+        if (this.ws) {
+            if (this.ws.readyState === WebSocket.OPEN) {
+                this.trySendInitPayload();
+                return;
+            }
+            if (this.ws.readyState === WebSocket.CONNECTING) {
+                return;
+            }
+        }
+        this.createWebSocket();
+    }
+
+    createWebSocket() {
         this.ws = new WebSocket('ws://localhost:8080');
         
         this.ws.onopen = () => {
             console.log('Connected to game server');
-            this.showGameScreen();
+            this.trySendInitPayload();
         };
 
         this.ws.onmessage = (event) => {
@@ -140,42 +384,89 @@ class GameClient {
 
         this.ws.onclose = () => {
             console.log('Disconnected from server');
-            this.addChatMessage('system', 'Disconnected from server');
+            if (this.playerId) {
+                this.addChatMessage('system', 'Disconnected from server');
+            } else if (this.currentLoginStep === 'element') {
+                this.showElementError('Lost connection to the server. Please try again.');
+                this.setJoinLoading(false);
+            }
+            this.ws = null;
+            this.pendingInitPayload = null;
         };
 
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
+            if (!this.playerId && this.currentLoginStep === 'element') {
+                this.showElementError('Unable to connect to the server. Please try again.');
+                this.setJoinLoading(false);
+            }
         };
     }
 
+    trySendInitPayload() {
+        if (!this.pendingInitPayload) return;
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({
+            type: 'INIT_PLAYER',
+            name: this.pendingInitPayload.name,
+            element: this.pendingInitPayload.element
+        }));
+    }
+
     handleServerMessage(message) {
+        switch (message.type) {
+            case 'PLAYER_CONFIG':
+                this.handleElementAvailability(message.availableElements, message.playerId);
+                return;
+            case 'ELEMENT_SELECTION_ERROR':
+                this.handleElementSelectionError(message.reason, message.availableElements);
+                return;
+        }
+
+        if (!this.playerId && message.type !== 'INIT') {
+            return;
+        }
+
         switch (message.type) {
             case 'INIT':
                 this.playerId = message.playerId;
                 this.arena = message.arena;
                 this.gameState.players[message.playerId] = message.player;
+                this.playerName = message.player.name || this.playerName;
+                this.pendingInitPayload = null;
+                this.setJoinLoading(false);
+                this.showGameScreen();
                 this.updateHUD();
                 break;
                 
             case 'GAME_STATE_UPDATE':
                 this.gameState = message.gameState;
+                this.syncTimer(message.gameState?.timeRemaining, message.timestamp);
                 this.updateHUD();
                 break;
                 
             case 'PLAYER_JOINED':
                 this.gameState.players[message.player.id] = message.player;
-                this.addChatMessage('system', `Player ${message.player.id.substr(0, 8)} joined`);
+                this.addChatMessage('system', `${message.player.name || message.player.id.substr(0, 8)} joined`);
                 break;
                 
             case 'PLAYER_LEFT':
+                const departingPlayer = this.gameState.players[message.playerId];
+                const departingName = departingPlayer ? (departingPlayer.name || departingPlayer.id.substr(0, 8)) : message.playerId.substr(0, 8);
                 delete this.gameState.players[message.playerId];
-                this.addChatMessage('system', `Player ${message.playerId.substr(0, 8)} left`);
+                this.addChatMessage('system', `${departingName} left`);
                 break;
                 
             case 'CHAT_MESSAGE':
                 const player = this.gameState.players[message.playerId];
-                const playerName = player ? `Player${message.playerId.substr(0, 8)}` : 'Unknown';
+                const playerName = player ? (player.name || player.id.substr(0, 8)) : 'Unknown';
                 this.addChatMessage('player', `${playerName}: ${message.message}`);
+                break;
+            case 'PLAYER_RENAMED':
+                this.handlePlayerRenamed(message.playerId, message.name);
+                break;
+            case 'PLAYER_ELEMENT_CHANGED':
+                this.handlePlayerElementChanged(message.playerId, message.element, message.color);
                 break;
         }
     }
@@ -183,6 +474,11 @@ class GameClient {
     setupEventListeners() {
         // Keyboard events
         document.addEventListener('keydown', (e) => {
+            const activeTag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '';
+            const isTyping = activeTag === 'input' || activeTag === 'textarea' || e.target?.isContentEditable;
+            if (isTyping) {
+                return;
+            }
             // Chat input
             if (e.key === 'Enter') {
                 this.focusChatInput();
@@ -196,7 +492,7 @@ class GameClient {
             }
 
             const direction = this.directionMap[e.key];
-            if (direction && direction !== this.currentDirection) {
+            if (direction && direction !== this.currentDirection && !this.isOppositeDirection(direction, this.currentDirection)) {
                 this.setDirection(direction);
                 e.preventDefault();
             }
@@ -462,14 +758,16 @@ class GameClient {
         this.ctx.lineWidth = isCurrentPlayer ? 3 : 2;
         this.ctx.strokeRect(screenX, screenY, this.playerSize, this.playerSize);
 
+        const displayName = this.getPlayerDisplayName(player);
         this.ctx.fillStyle = '#ffffff';
         this.ctx.font = '12px Arial';
-        this.ctx.fillText(player.id.substr(0, 4), screenX, screenY - 10);
+        this.ctx.fillText(displayName, screenX, screenY - 10);
         this.ctx.fillText(`${player.area || 0} cells`, screenX, screenY + this.playerSize + 15);
     }
 
     setDirection(direction) {
-        if (!this.ws || direction === this.currentDirection) return;
+        if (!this.ws || direction === this.currentDirection || this.gameState.gameOver) return;
+        if (this.isOppositeDirection(direction, this.currentDirection)) return;
         this.currentDirection = direction;
         this.ws.send(JSON.stringify({
             type: 'MOVEMENT',
@@ -488,6 +786,7 @@ class GameClient {
         }
 
         this.updateScoreboard();
+        this.updateTimerStatus();
     }
 
     updateScoreboard() {
@@ -507,7 +806,8 @@ class GameClient {
 
             const nameSpan = document.createElement('span');
             nameSpan.className = 'player-name';
-            nameSpan.textContent = `${index + 1}. ${player.id.substr(0, 4)}`;
+            const displayName = this.getPlayerDisplayName(player);
+            nameSpan.textContent = `${index + 1}. ${displayName}`;
 
             const scoreSpan = document.createElement('span');
             scoreSpan.className = 'player-score';
@@ -534,6 +834,100 @@ class GameClient {
         this.camera.y = Math.min(maxY, Math.max(0, centerY - this.camera.height / 2));
     }
 
+    sanitizePlayerName(name) {
+        const trimmed = (name || '').trim().substring(0, 9);
+        const cleaned = trimmed.replace(/[<>]/g, '').replace(/[^\p{L}\p{N}\s_\-]/gu, '');
+        if (cleaned) {
+            return cleaned;
+        }
+        return '';
+    }
+
+    getPlayerDisplayName(player) {
+        if (!player) return 'Unknown';
+        return player.name || player.id?.substr(0, 4) || 'Player';
+    }
+
+    isOppositeDirection(dirA, dirB) {
+        if (!dirA || !dirB) return false;
+        if (dirA === 'NONE' || dirB === 'NONE') return false;
+        return this.oppositeDirections[dirA] === dirB || this.oppositeDirections[dirB] === dirA;
+    }
+
+    updateTimerStatus() {
+        if (!this.timerElement) return;
+        const defaultTime = 3 * 60 * 1000;
+        let timeRemaining = (typeof this.gameState.timeRemaining === 'number')
+            ? this.gameState.timeRemaining
+            : defaultTime;
+
+        if (this.timerSync && typeof this.timerSync.remainingMs === 'number') {
+            const elapsed = performance.now() - this.timerSync.syncedAt;
+            timeRemaining = Math.max(0, this.timerSync.remainingMs - elapsed);
+        }
+
+        this.timerElement.textContent = this.formatTime(timeRemaining);
+
+        if (!this.statusMessageElement) return;
+        if (this.gameState.gameOver) {
+            const winnerName = this.gameState.winnerName;
+            this.statusMessageElement.textContent = winnerName ? `${winnerName} wins!` : 'Match ended';
+            this.statusMessageElement.classList.add('game-over');
+        } else {
+            this.statusMessageElement.textContent = '';
+            this.statusMessageElement.classList.remove('game-over');
+        }
+    }
+
+    formatTime(milliseconds) {
+        const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        return `${minutes}:${seconds}`;
+    }
+
+    syncTimer(timeRemaining, serverTimestamp) {
+        if (typeof timeRemaining !== 'number') {
+            this.timerSync = null;
+            return;
+        }
+        this.timerSync = {
+            remainingMs: timeRemaining,
+            syncedAt: performance.now(),
+            serverTimestamp: serverTimestamp || Date.now()
+        };
+    }
+
+    handlePlayerRenamed(playerId, name) {
+        if (!playerId || !name) return;
+        const player = this.gameState.players[playerId];
+        if (player) {
+            player.name = name;
+        }
+        if (playerId === this.playerId) {
+            this.playerName = name;
+        }
+        this.updateHUD();
+    }
+
+    handlePlayerElementChanged(playerId, element, color) {
+        if (!playerId || !element) return;
+        const player = this.gameState.players[playerId];
+        if (player) {
+            player.element = element;
+            if (color) {
+                player.color = color;
+            }
+        }
+
+        if (playerId === this.playerId && this.availableElements.includes(element)) {
+            this.selectedElement = element;
+            this.selectElement(element);
+        }
+
+        this.updateHUD();
+    }
+
     gameLoop(timestamp = 0) {
         if (!this.lastFrameTime) this.lastFrameTime = timestamp;
         const delta = timestamp - this.lastFrameTime;
@@ -545,7 +939,7 @@ class GameClient {
     }
 }
 
-// Khởi động game khi trang load
+// Start the game once the page finishes loading
 window.addEventListener('load', () => {
     const game = new GameClient();
     requestAnimationFrame((timestamp) => game.gameLoop(timestamp));

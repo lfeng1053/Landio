@@ -34,15 +34,65 @@ body {
     border-radius: 5px;
     border: 1px solid #0f3460;
     display: flex;
-    gap: 16px;
+    align-items: flex-start;
+    min-width: 160px;
 }
 
 #playerInfo div {
     margin: 5px 0;
 }
 
-#scoreboard {
+#timerOverlay {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(6, 12, 24, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 14px 28px;
+    text-align: center;
     min-width: 180px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+}
+
+.timer-label {
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: #4ECDC4;
+    margin-bottom: 4px;
+}
+
+#timer {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+#statusMessage {
+    font-size: 12px;
+    margin-top: 6px;
+    min-height: 18px;
+}
+
+#statusMessage.game-over {
+    color: #FFEAA7;
+}
+
+.scoreboard-tab {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+    padding: 14px 16px;
+    width: 170px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
 }
 
 .scoreboard-title {
@@ -144,22 +194,147 @@ body {
     text-align: center;
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.2);
+    width: 360px;
 }
 
-#startButton {
-    padding: 15px 30px;
-    font-size: 18px;
-    background: #e94560;
-    border: none;
-    color: white;
-    border-radius: 5px;
-    cursor: pointer;
+.login-step {
+    display: none;
+}
+
+.login-step.active {
+    display: block;
+    animation: fadeIn 0.25s ease;
+}
+
+.step-subtitle {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #d0d0d0;
+}
+
+#playerNameInput {
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
     margin-top: 20px;
-    transition: background 0.3s;
+    border-radius: 5px;
+    border: none;
+    background: rgba(0, 0, 0, 0.5);
+    color: #ffffff;
+    text-align: center;
 }
 
+#playerNameInput:focus {
+    outline: 2px solid #4ECDC4;
+}
+
+.error-message {
+    min-height: 18px;
+    font-size: 12px;
+    color: #ff6b6b;
+    margin-top: 8px;
+}
+
+.element-select {
+    margin-top: 10px;
+    text-align: left;
+}
+
+.element-select-title {
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 1px;
+    color: #4ECDC4;
+    margin-bottom: 10px;
+}
+
+.element-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.element-option {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.4);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    transition: border 0.2s, background 0.2s;
+}
+
+.element-option.disabled,
+.element-option:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.element-option.selected {
+    border-color: #FFEAA7;
+    background: rgba(255, 234, 167, 0.15);
+}
+
+.element-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.element-dot.water { background: #3B82F6; }
+.element-dot.fung { background: #10B981; }
+.element-dot.lavar { background: #FF6B35; }
+.element-dot.desert { background: #F59E0B; }
+
+.step-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 25px;
+}
+
+.step-actions.single {
+    justify-content: center;
+}
+
+.step-actions button {
+    flex: 1;
+}
+
+.step-actions.single button {
+    flex: none;
+    min-width: 140px;
+}
+
+#continueButton,
+#backToNameButton,
+#startButton {
+    margin-top: 0;
+}
+
+#continueButton:hover,
+#backToNameButton:hover,
 #startButton:hover {
     background: #ff6b6b;
+}
+
+#backToNameButton {
+    background: #0f3460;
+}
+
+.step-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .chat-message {

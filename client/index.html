@@ -14,11 +14,17 @@
                 <div>Cells Captured: <span id="cellsCaptured">0</span></div>
                 <div>Players: <span id="playerCount">1</span></div>
             </div>
+        </div>
 
-            <div id="scoreboard">
-                <div class="scoreboard-title">Leaderboard</div>
-                <ol id="scoreList"></ol>
-            </div>
+        <div id="timerOverlay">
+            <div class="timer-label">Time Left</div>
+            <div id="timer">03:00</div>
+            <div id="statusMessage"></div>
+        </div>
+
+        <div id="scoreboard" class="scoreboard-tab">
+            <div class="scoreboard-title">Leaderboard</div>
+            <ol id="scoreList"></ol>
         </div>
         
         <canvas id="gameCanvas" width="1600" height="900"></canvas>
@@ -34,8 +40,44 @@
 
     <div id="loginScreen">
         <div class="login-box">
-            <h2>Multiplayer Arena</h2>
-            <button id="startButton">Join Game</button>
+            <div id="nameStep" class="login-step active">
+                <h2>Multiplayer Arena</h2>
+                <p class="step-subtitle">Enter your name to begin</p>
+                <input type="text" id="playerNameInput" maxlength="9" placeholder="Enter your name">
+                <div id="nameError" class="error-message"></div>
+                <div class="step-actions single">
+                    <button id="continueButton">Continue</button>
+                </div>
+            </div>
+
+            <div id="elementStep" class="login-step">
+                <div class="element-select">
+                    <div class="element-select-title">Choose your element</div>
+                    <div id="elementOptions" class="element-options">
+                        <button type="button" class="element-option" data-element="water">
+                            <span class="element-dot water"></span>
+                            Water
+                        </button>
+                        <button type="button" class="element-option" data-element="fung">
+                            <span class="element-dot fung"></span>
+                            Nature
+                        </button>
+                        <button type="button" class="element-option" data-element="lavar">
+                            <span class="element-dot lavar"></span>
+                            Lava
+                        </button>
+                        <button type="button" class="element-option" data-element="desert">
+                            <span class="element-dot desert"></span>
+                            Desert
+                        </button>
+                    </div>
+                </div>
+                <div id="elementError" class="error-message"></div>
+                <div class="step-actions">
+                    <button id="backToNameButton" type="button">Back</button>
+                    <button id="startButton" type="button">Join Match</button>
+                </div>
+            </div>
         </div>
     </div>
 
